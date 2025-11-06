@@ -1,4 +1,4 @@
-name: Ganpati-RDP
+name: RDP Access via Tailscale (Fixed)
 
 on:
   workflow_dispatch:
@@ -10,43 +10,63 @@ jobs:
 
     steps:
       - name: Enable RDP and Create User
+        shell: pwsh
         run: |
           $user = "GanpatiPc"
-          $pass = "GanpatiPc@1020"
-          $secure = ConvertTo-SecureString $pass -AsPlainText -Force
+          $password = "GanpatiPc@12345"   # ✅ Strong + valid
+          $securePass = ConvertTo-SecureString $password -AsPlainText -Force
 
-          if (-not (Get-LocalUser -Name $user -ErrorAction SilentlyContinue)) {
-              New-LocalUser -Name $user -Password $secure -AccountNeverExpires
-              Add-LocalGroupMember -Group "Administrators" -Member $user
-              Add-LocalGroupMember -Group "Remote Desktop Users" -Member $user
+          Write-Host "Creating user account..."
+          Try {
+              if (-not (Get-LocalUser -Name $user -ErrorAction SilentlyContinue)) {
+                  New-LocalUser -Name $user -Password $securePass -AccountNeverExpires -FullName "Ganpati Enterprise"
+                  Add-LocalGroupMember -Group "Administrators" -Member $user
+                  Add-LocalGroupMember -Group "Remote Desktop Users" -Member $user
+                  Write-Host "✅ User created successfully."
+              } else {
+                  Write-Host "ℹ️ User already exists, skipping creation."
+              }
+          } Catch {
+              Write-Host "❌ ERROR creating user: $($_.Exception.Message)"
+              Exit 1
           }
 
-          # Enable Remote Desktop
+          Write-Host "Enabling Remote Desktop..."
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
           Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
           Restart-Service -Name TermService
+          Write-Host "✅ RDP Enabled successfully."
 
       - name: Install Tailscale
+        shell: pwsh
         run: |
-          Invoke-WebRequest -Uri "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi" -OutFile "$env:TEMP\tailscale.msi"
-          Start-Process msiexec.exe -ArgumentList "/i", "`"$env:TEMP\tailscale.msi`"", "/quiet", "/norestart" -Wait
+          Write-Host "Installing Tailscale..."
+          $tailscaleURL = "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi"
+          $tailscaleInstaller = "$env:TEMP\tailscale.msi"
+          Invoke-WebRequest -Uri $tailscaleURL -OutFile $tailscaleInstaller
+          Start-Process msiexec.exe -ArgumentList "/i `"$tailscaleInstaller`" /quiet /norestart" -Wait
+          Write-Host "✅ Tailscale installed."
 
-      - name: Connect to Tailscale
+      - name: Connect to Tailscale Network
+        shell: pwsh
         run: |
-          $AuthKey = "${{ secrets.TAILSCALE_AUTH_KEY }}"
-          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=$AuthKey --hostname=Ganpati-PC
+          Write-Host "Connecting to Tailscale..."
+          $authKey = "${{ secrets.TAILSCALE_AUTH_KEY }}"
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=$authKey --hostname=Ganpati-PC
           Start-Sleep -Seconds 10
           $ip = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
           echo "RDP_IP=$ip" >> $env:GITHUB_ENV
+          Write-Host "✅ Connected. IP: $ip"
 
-      - name: Show RDP Info
+      - name: Display RDP Credentials
+        shell: pwsh
         run: |
           Write-Host ""
           Write-Host "===================================="
           Write-Host "✅ RDP is ready via Tailscale!"
           Write-Host "IP Address : $env:RDP_IP"
           Write-Host "Username   : GanpatiPc"
-          Write-Host "Password   : GanpatiPc@1020"
+          Write-Host "Password   : GanpatiPc@12345"
           Write-Host "===================================="
           Write-Host ""
           while ($true) { Start-Sleep -Seconds 300 }
